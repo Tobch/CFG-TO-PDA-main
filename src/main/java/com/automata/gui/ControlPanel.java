@@ -182,11 +182,6 @@ public class ControlPanel extends JPanel {
             progressBar.setString(message);
         }
     }
-    
-    /**
-     * Adds a separator to the button layout.
-     * @return A vertical separator component
-     */
     private Component createSeparator() {
         JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
         separator.setPreferredSize(new Dimension(2, 25));
