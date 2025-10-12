@@ -122,9 +122,18 @@ public class PDA {
                 addStackSymbol(transition.getStackTop());
             }
             
+            // <-- MODIFIED: do NOT iterate characters; split the stackPush on whitespace into tokens
             if (transition.isPush()) {
-                for (char c : transition.getStackPush().toCharArray()) {
-                    addStackSymbol(String.valueOf(c));
+                String push = transition.getStackPush();
+                if (push != null) {
+                    String trimmed = push.trim();
+                    if (!trimmed.isEmpty() && !trimmed.equalsIgnoreCase("epsilon") && !trimmed.equals("ε")) {
+                        // split by whitespace into tokens; preserves multi-char tokens like "id"
+                        String[] tokens = trimmed.split("\\s+");
+                        for (String tok : tokens) {
+                            addStackSymbol(tok);
+                        }
+                    }
                 }
             }
         }

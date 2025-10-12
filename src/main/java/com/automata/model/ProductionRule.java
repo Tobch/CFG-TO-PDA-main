@@ -3,6 +3,8 @@ package com.automata.model;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 /**
  * represents a production rule in a context-free grammar
@@ -12,6 +14,10 @@ import java.util.Objects;
 public class ProductionRule {
     private String leftSide;
     private List<String> rightSide;
+
+    // Token pattern: identifiers (letters+digits/underscore) OR any single non-whitespace symbol.
+    // This ensures "(E)" becomes ["(", "E", ")"] rather than a combined "()" token.
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z][A-Za-z0-9_]*|\\S");
     
     /**
      * makes a new production rule
@@ -26,21 +32,29 @@ public class ProductionRule {
     /**
      * makes a production rule from a string
      * @param left the left side non-terminal
-     * @param rightStr the right side as a string (symbols separated by spaces)
+     * @param rightStr the right side as a string (symbols separated by spaces OR not)
      */
     public ProductionRule(String left, String rightStr) {
         this.leftSide = left;
         this.rightSide = new ArrayList<>();
         
-        if (rightStr.trim().equals("ε") || rightStr.trim().equals("epsilon")) {
+        if (rightStr == null) {
+            return;
+        }
+        
+        String trimmed = rightStr.trim();
+        if (trimmed.equals("ε") || trimmed.equalsIgnoreCase("epsilon")) {
             // epsilon production
             this.rightSide.add("epsilon");
-        } else {
-            String[] symbols = rightStr.trim().split("\\s+");
-            for (String symbol : symbols) {
-                if (!symbol.isEmpty()) {
-                    this.rightSide.add(symbol);
-                }
+            return;
+        }
+        
+        // Use pattern-based tokenization so tokens like "(" and ")" are separate
+        Matcher m = TOKEN_PATTERN.matcher(trimmed);
+        while (m.find()) {
+            String token = m.group();
+            if (token != null && !token.isEmpty()) {
+                this.rightSide.add(token);
             }
         }
     }
@@ -68,8 +82,10 @@ public class ProductionRule {
             if (symbol == null || symbol.trim().isEmpty()) {
                 return false;
             }
-            // allow epsilon, terminals (lowercase), non-terminals (uppercase), and special symbols
-            if (!symbol.matches("[a-zA-Z]|epsilon|\\+|\\*|\\-|\\/|\\(|\\)|id|num|if|then|else")) {
+            // allow uppercase single-letter non-terminals, multi-char identifiers, epsilon, and special symbols
+            if (!symbol.matches("[A-Z]") &&
+                !symbol.matches("[a-zA-Z][a-zA-Z0-9_]*") &&
+                !symbol.matches("epsilon|\\+|\\*|\\-|\\/|\\(|\\)")) {
                 return false;
             }
         }
@@ -83,7 +99,7 @@ public class ProductionRule {
      */
     public boolean isEpsilonProduction() {
         return rightSide.size() == 1 && 
-               (rightSide.get(0).equals("ε") || rightSide.get(0).equals("epsilon"));
+               (rightSide.get(0).equals("ε") || rightSide.get(0).equalsIgnoreCase("epsilon") || rightSide.get(0).equals("epsilon"));
     }
     
     // Getters
@@ -115,7 +131,7 @@ public class ProductionRule {
             for (int i = 0; i < rightSide.size(); i++) {
                 if (i > 0) sb.append(" ");
                 String symbol = rightSide.get(i);
-                if (symbol.equals("ε")) {
+                if (symbol.equals("ε") || symbol.equalsIgnoreCase("epsilon")) {
                     sb.append("epsilon");
                 } else {
                     sb.append(symbol);

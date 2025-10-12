@@ -2,11 +2,14 @@ package com.automata.gui;
 
 import com.automata.model.PDA;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
 
 /**
  * panel that shows the PDA output in a nice format
@@ -18,6 +21,13 @@ public class PDAOutputPanel extends JPanel {
     private JButton copyButton;
     private JButton saveButton;
     private JLabel statusLabel;
+
+    // diagram related
+    private PDADiagramPanel diagramPanel;
+    private JButton exportPngButton;
+    private JButton exportDotButton;
+
+    private JTabbedPane tabbedPane;
     
     /**
      * makes the panel where we show the PDA output
@@ -57,6 +67,19 @@ public class PDAOutputPanel extends JPanel {
         statusLabel = new JLabel("PDA output will appear here after conversion");
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC));
         statusLabel.setForeground(Color.GRAY);
+
+        // diagram panel and export buttons
+        diagramPanel = new PDADiagramPanel();
+        exportPngButton = new JButton("Export Diagram PNG");
+        exportPngButton.setToolTipText("Export the diagram view as a PNG image");
+        exportPngButton.setEnabled(false);
+
+        exportDotButton = new JButton("Export DOT");
+        exportDotButton.setToolTipText("Export the PDA as a Graphviz DOT file");
+        exportDotButton.setEnabled(false);
+
+        // tabbed pane will host text and diagram
+        tabbedPane = new JTabbedPane();
     }
     
     /**
@@ -66,21 +89,26 @@ public class PDAOutputPanel extends JPanel {
         setLayout(new BorderLayout());
         setBorder(new TitledBorder("Pushdown Automaton Output"));
         
-        // main area where we show stuff
-        JPanel displayPanel = new JPanel(new BorderLayout());
-        displayPanel.add(scrollPane, BorderLayout.CENTER);
-        
-        // panel with buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttonPanel.add(copyButton);
-        buttonPanel.add(saveButton);
-        
-        // Bottom panel with buttons and status
+        // prepare the tabbed pane
+        tabbedPane.addTab("Text", scrollPane);
+        tabbedPane.addTab("Diagram", diagramPanel);
+
+        // panel with buttons (left) and diagram controls (right)
+        JPanel leftButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        leftButtonPanel.add(copyButton);
+        leftButtonPanel.add(saveButton);
+
+        JPanel diagramControls = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        diagramControls.add(exportDotButton);
+        diagramControls.add(exportPngButton);
+
+        // Bottom panel with left buttons and diagram controls on the right, plus status in center
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(buttonPanel, BorderLayout.WEST);
+        bottomPanel.add(leftButtonPanel, BorderLayout.WEST);
         bottomPanel.add(statusLabel, BorderLayout.CENTER);
+        bottomPanel.add(diagramControls, BorderLayout.EAST);
         
-        add(displayPanel, BorderLayout.CENTER);
+        add(tabbedPane, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
         
         // show helpful text when there's nothing
@@ -106,6 +134,22 @@ public class PDAOutputPanel extends JPanel {
                 saveToFile();
             }
         });
+
+        // Export PNG action
+        exportPngButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                exportDiagramAsPng();
+            }
+        });
+
+        // Export DOT action
+        exportDotButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                exportPdaAsDot();
+            }
+        });
     }
     
     /**
@@ -125,6 +169,11 @@ public class PDAOutputPanel extends JPanel {
         // Enable buttons
         copyButton.setEnabled(true);
         saveButton.setEnabled(true);
+        exportPngButton.setEnabled(true);
+        exportDotButton.setEnabled(true);
+        
+        // Update diagram
+        diagramPanel.setPDA(pda);
         
         // Update status
         int transitionCount = pda.getTransitions().size();
@@ -155,6 +204,8 @@ public class PDAOutputPanel extends JPanel {
         displayEmptyMessage();
         copyButton.setEnabled(false);
         saveButton.setEnabled(false);
+        exportPngButton.setEnabled(false);
+        exportDotButton.setEnabled(false);
         statusLabel.setText("PDA output will appear here after conversion");
         statusLabel.setForeground(Color.GRAY);
     }
@@ -249,6 +300,96 @@ public class PDAOutputPanel extends JPanel {
                     "Save Error", 
                     JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+
+    /**
+     * Export the diagram panel as a PNG image (file chooser).
+     */
+    private void exportDiagramAsPng() {
+        try {
+            BufferedImage img = diagramPanel.toImage();
+            JFileChooser chooser = new JFileChooser();
+            chooser.setSelectedFile(new File("pda-diagram.png"));
+            int rc = chooser.showSaveDialog(SwingUtilities.getWindowAncestor(this));
+            if (rc == JFileChooser.APPROVE_OPTION) {
+                File out = chooser.getSelectedFile();
+                // ensure .png extension
+                if (!out.getName().toLowerCase().endsWith(".png")) {
+                    out = new File(out.getAbsolutePath() + ".png");
+                }
+                ImageIO.write(img, "PNG", out);
+                JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                    "Saved diagram to " + out.getAbsolutePath());
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                "Error exporting PNG: " + ex.getMessage(), "Export Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Export the PDA as a Graphviz DOT file (file chooser).
+     */
+    private void exportPdaAsDot() {
+        try {
+            // Need a PDA object - get it from the diagram panel's current pda
+            // We don't expose the internal PDA field in PDADiagramPanel, but we can re-create
+            // by grabbing the text. Simpler approach: require callers to call displayPDA(pda)
+            // so we can store the last displayed PDA. We'll store it now as a small enhancement.
+            // To keep this file self-contained, attempt to derive dot from diagramPanel's pda via reflection:
+
+            java.lang.reflect.Field f = diagramPanel.getClass().getDeclaredField("pda");
+            f.setAccessible(true);
+            Object p = f.get(diagramPanel);
+            if (p == null) {
+                JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                    "No PDA available to export.", "Export Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            String dot;
+            try {
+                java.lang.reflect.Method m = p.getClass().getMethod("toDot");
+                Object res = m.invoke(p);
+                dot = res != null ? res.toString() : null;
+            } catch (NoSuchMethodException nsme) {
+                // fallback: use getFormattedOutput / manual conversion
+                java.lang.reflect.Method m2 = p.getClass().getMethod("getFormattedOutput");
+                Object res2 = m2.invoke(p);
+                dot = "// DOT export not available (no toDot method). PDA textual output below:\n" +
+                      (res2 != null ? res2.toString() : "");
+            }
+
+            if (dot == null) {
+                JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                    "Failed to produce DOT output.", "Export Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            JFileChooser chooser = new JFileChooser();
+            chooser.setSelectedFile(new File("pda.dot"));
+            int rc = chooser.showSaveDialog(SwingUtilities.getWindowAncestor(this));
+            if (rc == JFileChooser.APPROVE_OPTION) {
+                File out = chooser.getSelectedFile();
+                // ensure .dot ext
+                if (!out.getName().toLowerCase().endsWith(".dot")) {
+                    out = new File(out.getAbsolutePath() + ".dot");
+                }
+                try (java.io.FileWriter fw = new java.io.FileWriter(out)) {
+                    fw.write(dot);
+                }
+                JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                    "Saved DOT to " + out.getAbsolutePath());
+            }
+        } catch (NoSuchFieldException nsf) {
+            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                "Cannot access current PDA for DOT export.", "Export Error", JOptionPane.ERROR_MESSAGE);
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                "Error exporting DOT: " + ex.getMessage(), "Export Error", JOptionPane.ERROR_MESSAGE);
         }
     }
     

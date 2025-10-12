@@ -36,7 +36,8 @@ public class PDATransition {
      * @return true if it's epsilon
      */
     public boolean isEpsilonTransition() {
-        return inputSymbol.equals("ε") || inputSymbol.equals("epsilon") || inputSymbol.isEmpty();
+        return inputSymbol == null ||
+               inputSymbol.equals("ε") || inputSymbol.equalsIgnoreCase("epsilon") || inputSymbol.isEmpty();
     }
     
     /**
@@ -44,7 +45,7 @@ public class PDATransition {
      * @return true if it pops
      */
     public boolean isPop() {
-        return stackTop != null && !stackTop.isEmpty() && !stackTop.equals("epsilon");
+        return stackTop != null && !stackTop.isEmpty() && !stackTop.equalsIgnoreCase("epsilon");
     }
     
     /**
@@ -52,7 +53,7 @@ public class PDATransition {
      * @return true if stackPush is not empty
      */
     public boolean isPush() {
-        return stackPush != null && !stackPush.isEmpty() && !stackPush.equals("epsilon");
+        return stackPush != null && !stackPush.isEmpty() && !stackPush.equalsIgnoreCase("epsilon");
     }
     
     /**
@@ -61,7 +62,12 @@ public class PDATransition {
      */
     public int getStackEffect() {
         int popCount = isPop() ? 1 : 0;
-        int pushCount = isPush() ? stackPush.length() : 0;
+        int pushCount = 0;
+        if (isPush()) {
+            // count tokens rather than characters
+            String[] tokens = stackPush.trim().split("\\s+");
+            pushCount = tokens.length;
+        }
         return pushCount - popCount;
     }
     
@@ -126,6 +132,50 @@ public class PDATransition {
     public void setStackPush(String stackPush) {
         this.stackPush = stackPush;
     }
+
+    /**
+     * Returns a compact label suitable for diagram edges.
+     * Example outputs:
+     *  - "ε, pop:Z0 -> push:E Z0"
+     *  - "id, pop:id -> push:ε"
+     *
+     * PDADiagramPanel can call this to obtain the text for an edge.
+     */
+    public String getLabel() {
+        // normalize input symbol
+        String in;
+        if (inputSymbol == null || inputSymbol.isEmpty() || inputSymbol.equals("ε") || inputSymbol.equalsIgnoreCase("epsilon")) {
+            in = "ε";
+        } else {
+            in = inputSymbol;
+        }
+        
+        // normalize pop symbol
+        String pop;
+        if (stackTop == null || stackTop.isEmpty() || stackTop.equals("ε") || stackTop.equalsIgnoreCase("epsilon")) {
+            pop = "ε";
+        } else {
+            pop = stackTop;
+        }
+        
+        // normalize push string to space-separated tokens
+        String push;
+        if (stackPush == null || stackPush.isEmpty() || stackPush.equals("ε") || stackPush.equalsIgnoreCase("epsilon")) {
+            push = "ε";
+        } else {
+            String[] tokens = stackPush.trim().split("\\s+");
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < tokens.length; i++) {
+                if (i > 0) sb.append(" ");
+                sb.append(tokens[i]);
+            }
+            push = sb.toString();
+        }
+        
+        return String.format("%s, pop:%s -> push:%s", in, pop, push);
+        
+    }
+
     
     @Override
     public String toString() {
@@ -133,7 +183,7 @@ public class PDATransition {
         sb.append("delta(").append(fromState).append(", ");
         
         // input symbol
-        if (inputSymbol.isEmpty() || inputSymbol.equals("ε") || inputSymbol.equals("epsilon")) {
+        if (inputSymbol == null || inputSymbol.isEmpty() || inputSymbol.equals("ε") || inputSymbol.equalsIgnoreCase("epsilon")) {
             sb.append("epsilon");
         } else {
             sb.append(inputSymbol);
@@ -142,7 +192,7 @@ public class PDATransition {
         sb.append(", ");
         
         // stack top
-        if (stackTop == null || stackTop.isEmpty() || stackTop.equals("ε")) {
+        if (stackTop == null || stackTop.isEmpty() || stackTop.equals("ε") || stackTop.equalsIgnoreCase("epsilon")) {
             sb.append("epsilon");
         } else {
             sb.append(stackTop);
@@ -150,11 +200,17 @@ public class PDATransition {
         
         sb.append(") = (").append(toState).append(", ");
         
-        // Stack push
-        if (stackPush == null || stackPush.isEmpty() || stackPush.equals("ε")) {
+        // Stack push - normalize by splitting tokens and joining with a single space so e.g. ") E (" prints cleanly
+        if (stackPush == null || stackPush.isEmpty() || stackPush.equals("ε") || stackPush.equalsIgnoreCase("epsilon")) {
             sb.append("epsilon");
         } else {
-            sb.append(stackPush);
+            String[] tokens = stackPush.trim().split("\\s+");
+            StringBuilder pushFormatted = new StringBuilder();
+            for (int i = 0; i < tokens.length; i++) {
+                if (i > 0) pushFormatted.append(" ");
+                pushFormatted.append(tokens[i]);
+            }
+            sb.append(pushFormatted.toString());
         }
         
         sb.append(")");

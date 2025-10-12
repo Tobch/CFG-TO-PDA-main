@@ -8,7 +8,6 @@ import com.automata.parser.CFGParser;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 
 /**
@@ -45,7 +44,7 @@ public class MainWindow extends JFrame {
         try {
             setIconImage(Toolkit.getDefaultToolkit().getImage("icon.png"));
         } catch (Exception e) {
-            // no icon found, whatever
+            // no icon found, ignore
         }
     }
     
@@ -64,21 +63,30 @@ public class MainWindow extends JFrame {
     private void setupLayout() {
         setLayout(new BorderLayout());
         
-        // make the main split pane
+        // main split pane (left: input, right: output)
         JSplitPane mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         mainSplitPane.setLeftComponent(inputPanel);
         mainSplitPane.setRightComponent(outputPanel);
         mainSplitPane.setDividerLocation(400);
         mainSplitPane.setResizeWeight(0.4);
-        
-        // add everything to the main window
+        mainSplitPane.setOneTouchExpandable(true);
+
         add(mainSplitPane, BorderLayout.CENTER);
-        add(controlPanel, BorderLayout.SOUTH);
-        
-        // add a status bar at the bottom
+
+        // bottom area: put controlPanel above a small status bar.
+        JPanel bottomContainer = new JPanel(new BorderLayout());
+        bottomContainer.add(controlPanel, BorderLayout.CENTER);
+
         JLabel statusBar = new JLabel("Ready");
         statusBar.setBorder(BorderFactory.createLoweredBevelBorder());
-        add(statusBar, BorderLayout.SOUTH);
+        // put a small padding around the status bar for nicer look
+        JPanel statusWrapper = new JPanel(new BorderLayout());
+        statusWrapper.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        statusWrapper.add(statusBar, BorderLayout.CENTER);
+
+        bottomContainer.add(statusWrapper, BorderLayout.SOUTH);
+
+        add(bottomContainer, BorderLayout.SOUTH);
     }
     
     /**
@@ -86,36 +94,16 @@ public class MainWindow extends JFrame {
      */
     private void setupEventHandlers() {
         // Convert button action
-        controlPanel.getConvertButton().addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                performConversion();
-            }
-        });
+        controlPanel.getConvertButton().addActionListener((ActionEvent e) -> performConversion());
         
         // Clear button action
-        controlPanel.getClearButton().addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                clearAll();
-            }
-        });
+        controlPanel.getClearButton().addActionListener((ActionEvent e) -> clearAll());
         
         // Validate button action
-        controlPanel.getValidateButton().addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                validateGrammar();
-            }
-        });
+        controlPanel.getValidateButton().addActionListener((ActionEvent e) -> validateGrammar());
         
         // Example button action
-        controlPanel.getExampleButton().addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                loadExample();
-            }
-        });
+        controlPanel.getExampleButton().addActionListener((ActionEvent e) -> loadExample());
     }
     
     /**
@@ -218,9 +206,10 @@ public class MainWindow extends JFrame {
                 outputPanel.clearOutput();
                 return;
             }
-            
+
             // Convert to PDA
             PDAGenerator.ConversionResult result = generator.convertCFGToPDAWithValidation(cfg);
+            
             
             if (result.isSuccessful()) {
                 PDA pda = result.getPDA();
@@ -393,11 +382,8 @@ public class MainWindow extends JFrame {
     public static void main(String[] args) {
         // Use default look and feel
         
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                new MainWindow().setVisible(true);
-            }
+        SwingUtilities.invokeLater(() -> {
+            new MainWindow().setVisible(true);
         });
     }
 }

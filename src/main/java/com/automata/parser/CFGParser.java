@@ -14,9 +14,14 @@ public class CFGParser {
     
     private List<String> validationErrors;
     private List<String> validationWarnings;
+
+    // Matches a production like: A -> ...
     private static final Pattern PRODUCTION_PATTERN = Pattern.compile("^\\s*([A-Z])\\s*->\\s*(.+)\\s*$");
-    private static final Pattern SYMBOL_PATTERN = Pattern.compile("[a-zA-Z0-9+*()epsilon]|epsilon|id");
-    
+
+    // Token pattern: identifiers (letters+digits/underscore) OR any non-whitespace single symbol
+    // This will produce tokens like: id, E, T, +, *, (, ), etc.
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z][A-Za-z0-9_]*|\\S");
+
     /**
      * makes a new CFG parser
      */
@@ -31,7 +36,7 @@ public class CFGParser {
      * - Each line contains one production rule
      * - Format: "A -> alpha" where A is non-terminal, alpha is sequence of symbols
      * - Multiple rules for same non-terminal can be on separate lines
-     * - Epsilon can be represented as "epsilon"
+     * - Epsilon can be represented as "epsilon" or "ε"
      * - Comments start with # and are ignored
      * - Empty lines are ignored
      * 
@@ -52,7 +57,8 @@ public class CFGParser {
         String startSymbol = null;
         
         for (int lineNum = 0; lineNum < lines.length; lineNum++) {
-            String line = lines[lineNum].trim();
+            String rawLine = lines[lineNum];
+            String line = rawLine.trim();
             
             // skip empty lines and comments
             if (line.isEmpty() || line.startsWith("#")) {
@@ -76,7 +82,7 @@ public class CFGParser {
             cfg.setStartSymbol(startSymbol);
         }
         
-        // check if the whole grammar is valid
+        // check if the whole grammar is valid (CFG class performs deeper checks)
         if (!cfg.isValid()) {
             validationErrors.addAll(cfg.getValidationErrors());
             return null; // only return null for real errors, not warnings
@@ -99,6 +105,7 @@ public class CFGParser {
      */
     public CFG parseWithExplicitStart(String input) {
         validationErrors.clear();
+        validationWarnings.clear();
         
         if (input == null || input.trim().isEmpty()) {
             validationErrors.add("Input cannot be empty");
@@ -109,8 +116,8 @@ public class CFGParser {
         String explicitStart = null;
         List<String> ruleLines = new ArrayList<>();
         
-        for (String line : lines) {
-            line = line.trim();
+        for (String rawLine : lines) {
+            String line = rawLine.trim();
             if (line.isEmpty() || line.startsWith("#")) {
                 continue;
             }
@@ -129,7 +136,7 @@ public class CFGParser {
             }
         }
         
-        // Parse rules
+        // Parse rules (this will populate validation errors if any)
         CFG cfg = parseFromString(String.join("\n", ruleLines));
         if (cfg != null && explicitStart != null) {
             cfg.setStartSymbol(explicitStart);
@@ -147,6 +154,7 @@ public class CFGParser {
     
     /**
      * Parses a single production rule from a line.
+     * This method tokenizes the right-hand side and normalizes it as a space-separated string.
      * @param line The line containing the production rule
      * @param lineNumber The line number for error reporting
      * @return Parsed ProductionRule, or null if parsing fails
@@ -159,8 +167,8 @@ public class CFGParser {
             return null;
         }
         
-        String leftSide = matcher.group(1);
-        String rightSide = matcher.group(2).trim();
+        String leftSide = matcher.group(1).trim();
+        String rightRaw = matcher.group(2).trim();
         
         // check the left side
         if (!leftSide.matches("[A-Z]")) {
@@ -168,47 +176,99 @@ public class CFGParser {
             return null;
         }
         
-        // check the right side symbols
-        if (!validateRightSide(rightSide, lineNumber)) {
-            return null;
-        }
+        // tokenize the RHS
+        List<String> rhsTokens = tokenizeRHS(rightRaw);
         
-        return new ProductionRule(leftSide, rightSide);
+        // if tokenization yields nothing, it is epsilon
+        if (rhsTokens.isEmpty()) {
+            // accepted as epsilon production
+            // create normalized RHS string as the literal 'epsilon' for storage
+            String normalized = "epsilon";
+            return new ProductionRule(leftSide, normalized);
+        } else {
+            // validate each token
+            for (String tok : rhsTokens) {
+                if (!validateSymbol(tok)) {
+                    validationErrors.add("Line " + lineNumber + ": Invalid symbol '" + tok + "'. " +
+                        "Symbols must be uppercase non-terminals (A), terminals (lowercase/identifiers), or special symbols (+, *, (, ), id, epsilon).");
+                    return null;
+                }
+            }
+            // normalized representation: tokens separated by single space
+            String normalized = String.join(" ", rhsTokens);
+            return new ProductionRule(leftSide, normalized);
+        }
+    }
+    
+    /**
+     * Tokenize a RHS string into grammar tokens.
+     * Examples:
+     *  - "id" -> ["id"]
+     *  - "( E )" -> ["(", "E", ")"]
+     *  - "T + E" -> ["T", "+", "E"]
+     *  - "epsilon" or "ε" -> [] (interpreted as epsilon)
+     *
+     * @param rhs the raw right-hand side string
+     * @return list of tokens (empty list = epsilon)
+     */
+    private List<String> tokenizeRHS(String rhs) {
+        List<String> tokens = new ArrayList<>();
+        if (rhs == null) return tokens;
+        String trimmed = rhs.trim();
+        if (trimmed.isEmpty()) return tokens;
+
+        // treat literal "epsilon" or 'ε' as epsilon (no tokens)
+        if (trimmed.equalsIgnoreCase("epsilon") || trimmed.equals("ε")) {
+            return tokens;
+        }
+
+        Matcher m = TOKEN_PATTERN.matcher(trimmed);
+        while (m.find()) {
+            String tok = m.group();
+            tokens.add(tok);
+        }
+        return tokens;
     }
     
     /**
      * Validates the right-hand side of a production rule.
-     * @param rightSide The right-hand side string
+     * Uses tokenization to check each token for validity.
+     * @param rightSide The right-hand side string (raw or normalized)
      * @param lineNumber The line number for error reporting
      * @return true if valid, false otherwise
      */
     private boolean validateRightSide(String rightSide, int lineNumber) {
-        if (rightSide.isEmpty()) {
+        if (rightSide == null) {
+            validationErrors.add("Line " + lineNumber + ": Right side cannot be null");
+            return false;
+        }
+        String trimmed = rightSide.trim();
+        if (trimmed.isEmpty()) {
             validationErrors.add("Line " + lineNumber + ": Right side cannot be empty. Use 'epsilon' for epsilon production");
             return false;
         }
-        
-        // handle epsilon productions
-        if (rightSide.equals("epsilon") || rightSide.equals("ε")) {
+
+        // If the caller passed a normalized space-separated RHS, tokenization still works.
+        List<String> tokens = tokenizeRHS(trimmed);
+        if (tokens.isEmpty()) {
+            // epsilon is allowed
             return true;
         }
-        
-        // split into symbols and check each one
-        String[] symbols = rightSide.split("\\s+");
-        for (String symbol : symbols) {
+
+        for (String symbol : tokens) {
             if (!validateSymbol(symbol)) {
                 validationErrors.add("Line " + lineNumber + ": Invalid symbol '" + symbol + "'. " +
-                    "Symbols must be uppercase letters (non-terminals), lowercase letters/digits (terminals), " +
+                    "Symbols must be uppercase letters (non-terminals), lowercase identifiers/digits (terminals), " +
                     "or special symbols (+, *, (, ), id, epsilon)");
                 return false;
             }
         }
-        
+
         return true;
     }
     
     /**
-     * Validates a single symbol.
+     * Validates a single symbol token.
      * @param symbol The symbol to validate
      * @return true if valid, false otherwise
      */
@@ -217,23 +277,34 @@ public class CFGParser {
             return false;
         }
         
-        // allow non-terminals (uppercase letters)
+        // allow non-terminals (single uppercase letter)
         if (symbol.matches("[A-Z]")) {
             return true;
         }
         
-        // allow terminals (lowercase letters, digits)
+        // allow terminals that are a single lowercase/digit character
         if (symbol.matches("[a-z0-9]")) {
             return true;
         }
         
-        // Allow special symbols
+        // allow multi-char identifiers (id, num, variable names)
+        if (symbol.matches("[a-zA-Z][a-zA-Z0-9_]*")) {
+            // but disallow single uppercase (covered above)
+            if (symbol.matches("[A-Z]")) return false;
+            return true;
+        }
+        
+        // Allow special single-character symbols and reserved keywords
         if (symbol.equals("epsilon") || symbol.equals("ε") ||
             symbol.equals("+") || symbol.equals("*") || 
-            symbol.equals("(") || symbol.equals(")") || 
-            symbol.equals("id") || symbol.equals("num") ||
-            symbol.equals("if") || symbol.equals("then") || symbol.equals("else") ||
+            symbol.equals("(") || symbol.equals(")") ||
             symbol.equals("-") || symbol.equals("/")) {
+            return true;
+        }
+        
+        // Known keywords often used as terminals (optional)
+        if (symbol.equals("id") || symbol.equals("num") ||
+            symbol.equals("if") || symbol.equals("then") || symbol.equals("else")) {
             return true;
         }
         
@@ -247,6 +318,7 @@ public class CFGParser {
      */
     public boolean validateCFG(CFG grammar) {
         validationErrors.clear();
+        validationWarnings.clear();
         
         if (grammar == null) {
             validationErrors.add("Grammar cannot be null");
@@ -299,8 +371,8 @@ public class CFGParser {
         for (String nonTerminal : grammar.getNonTerminals()) {
             List<ProductionRule> rules = grammar.getRulesFor(nonTerminal);
             for (ProductionRule rule : rules) {
-                if (!rule.getRightSide().isEmpty() && 
-                    rule.getRightSide().get(0).equals(nonTerminal)) {
+                List<String> rhs = rule.getRightSide();
+                if (!rhs.isEmpty() && rhs.get(0).equals(nonTerminal)) {
                     validationWarnings.add("Warning: Left recursion detected in rule: " + rule.toString());
                 }
             }
@@ -336,7 +408,8 @@ public class CFGParser {
             for (ProductionRule rule : grammar.getRules()) {
                 if (!productive.contains(rule.getLeftSide())) {
                     boolean canDerive = true;
-                    for (String symbol : rule.getRightSide()) {
+                    List<String> rhs = rule.getRightSide();
+                    for (String symbol : rhs) {
                         if (symbol.matches("[A-Z]") && !productive.contains(symbol)) {
                             canDerive = false;
                             break;
@@ -406,7 +479,8 @@ public class CFGParser {
         // Check if start symbol appears on right-hand side (not necessarily an error, but worth noting)
         boolean appearsOnRHS = false;
         for (ProductionRule rule : grammar.getRules()) {
-            if (rule.getRightSide().contains(startSymbol)) {
+            List<String> rhs = rule.getRightSide();
+            if (rhs.contains(startSymbol)) {
                 appearsOnRHS = true;
                 break;
             }
@@ -444,9 +518,12 @@ public class CFGParser {
                 ProductionRule rule1 = rules.get(i);
                 ProductionRule rule2 = rules.get(j);
                 
-                if (!rule1.getRightSide().isEmpty() && !rule2.getRightSide().isEmpty()) {
-                    String first1 = rule1.getRightSide().get(0);
-                    String first2 = rule2.getRightSide().get(0);
+                List<String> rhs1 = rule1.getRightSide();
+                List<String> rhs2 = rule2.getRightSide();
+                
+                if (!rhs1.isEmpty() && !rhs2.isEmpty()) {
+                    String first1 = rhs1.get(0);
+                    String first2 = rhs2.get(0);
                     
                     if (first1.equals(first2)) {
                         validationWarnings.add("Warning: Common prefix detected for non-terminal '" + 
@@ -468,8 +545,9 @@ public class CFGParser {
         Map<String, List<ProductionRule>> prefixGroups = new HashMap<>();
         
         for (ProductionRule rule : rules) {
-            if (!rule.getRightSide().isEmpty()) {
-                String firstSymbol = rule.getRightSide().get(0);
+            List<String> rhs = rule.getRightSide();
+            if (!rhs.isEmpty()) {
+                String firstSymbol = rhs.get(0);
                 prefixGroups.computeIfAbsent(firstSymbol, k -> new ArrayList<>()).add(rule);
             }
         }
@@ -502,6 +580,7 @@ public class CFGParser {
      */
     public ValidationResult performDetailedValidation(CFG grammar) {
         validationErrors.clear();
+        validationWarnings.clear();
         
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -598,5 +677,6 @@ public class CFGParser {
      */
     public void clearErrors() {
         validationErrors.clear();
+        validationWarnings.clear();
     }
 }
